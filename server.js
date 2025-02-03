@@ -13,14 +13,17 @@ mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log("✅ Connected to MongoDB"))
   .catch((err) => console.error("❌ MongoDB connection failed:", err));
 
-// Convert current time to IST (UTC +5:30) and remove seconds and milliseconds
+/**
+ * Function to get current IST time (UTC+5:30) without seconds & milliseconds
+ */
 function getISTDateWithoutSeconds() {
-  const date = new Date();
-  
-  // Convert the current time to IST (India Standard Time)
-  const ISTDate = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const now = new Date();
 
-  // Set seconds and milliseconds to 0
+  // Convert to IST manually (UTC +5:30)
+  const ISTOffset = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes in milliseconds
+  const ISTDate = new Date(now.getTime() + ISTOffset);
+
+  // Remove seconds and milliseconds
   ISTDate.setSeconds(0);
   ISTDate.setMilliseconds(0);
 
@@ -37,7 +40,7 @@ const attendanceSchema = new mongoose.Schema({
 
 const Attendance = mongoose.model("Attendance", attendanceSchema);
 
-// POST route for Login
+// 📌 POST route for Login
 app.post("/login", async (req, res) => {
   const { employeeName } = req.body;
   const date = new Date().toISOString().split("T")[0]; // Current date (YYYY-MM-DD)
@@ -50,9 +53,10 @@ app.post("/login", async (req, res) => {
       return res.status(400).json({ message: "User already logged in today." });
     }
 
-    // Insert login record with IST time and no seconds/milliseconds
-    const loginTime = getISTDateWithoutSeconds();  // Get the time in IST
+    // Store login time in UTC (converted from IST)
+    const loginTime = getISTDateWithoutSeconds();  
     const newAttendance = new Attendance({ employeeName, date, loginTime });
+
     await newAttendance.save();
 
     res.status(200).json({ message: "Login successful.", recordId: newAttendance._id });
@@ -61,7 +65,7 @@ app.post("/login", async (req, res) => {
   }
 });
 
-// POST route for Logout
+// 📌 POST route for Logout
 app.post("/logout", async (req, res) => {
   const { employeeName } = req.body;
   const date = new Date().toISOString().split("T")[0]; // Current date (YYYY-MM-DD)
@@ -78,12 +82,30 @@ app.post("/logout", async (req, res) => {
       return res.status(400).json({ message: "User already logged out." });
     }
 
-    // Update logout time with IST time and no seconds/milliseconds
-    const logoutTime = getISTDateWithoutSeconds(); // Get the time in IST
+    // Store logout time in UTC (converted from IST)
+    const logoutTime = getISTDateWithoutSeconds();
     record.logoutTime = logoutTime;
     await record.save();
 
     res.status(200).json({ message: "Logout successful." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 📌 GET route to fetch attendance records (Convert UTC → IST)
+app.get("/attendance", async (req, res) => {
+  try {
+    const records = await Attendance.find();
+
+    // Convert stored UTC timestamps to IST before sending response
+    const formattedRecords = records.map(record => ({
+      ...record._doc,
+      loginTime: record.loginTime ? new Date(record.loginTime.getTime() + 5.5 * 60 * 60 * 1000) : null,
+      logoutTime: record.logoutTime ? new Date(record.logoutTime.getTime() + 5.5 * 60 * 60 * 1000) : null,
+    }));
+
+    res.status(200).json(formattedRecords);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
